@@ -7,6 +7,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import type { Config } from "../lib/config.js";
 import type { Address, Hex } from "viem";
 import { ServerClient, tryConnectToServer } from "../client/index.js";
+import { createCwpWallet } from "../lib/cwp.js";
 
 export interface CLIContext {
   config: Config;
@@ -15,7 +16,6 @@ export interface CLIContext {
   getWalletAddress(): Address;
   getServerClient(): Promise<ServerClient | null>;
   hasAccount(): boolean;
-  requiresAccountSetup(): boolean;
 }
 
 export function createContext(config: Config): CLIContext {
@@ -39,19 +39,22 @@ export function createContext(config: Config): CLIContext {
 
     getWalletClient(): ExchangeClient {
       if (!walletClient) {
-        if (!config.privateKey) {
-          if (config.account?.type === "readonly") {
-            throw new Error(
-              `Account "${config.account.alias}" is read-only and cannot perform trading operations.\n` +
-              "Run 'hl account add' to set up an API wallet for trading."
-            );
-          }
+        if (config.account?.type === "walletconnect" && config.cwpProvider && config.walletAddress) {
+          const wallet = createCwpWallet(config.cwpProvider, config.walletAddress);
+          walletClient = new ExchangeClient({ transport, wallet });
+        } else if (config.privateKey) {
+          const account = privateKeyToAccount(config.privateKey as Hex);
+          walletClient = new ExchangeClient({ transport, wallet: account });
+        } else if (config.account?.type === "readonly") {
+          throw new Error(
+            `Account "${config.account.alias}" is read-only and cannot perform trading operations.\n` +
+            "Run 'hl account add' to set up an API wallet for trading."
+          );
+        } else {
           throw new Error(
             "No account configured. Run 'hl account add' to set up your account."
           );
         }
-        const account = privateKeyToAccount(config.privateKey as Hex);
-        walletClient = new ExchangeClient({ transport, wallet: account });
       }
       return walletClient;
     },
@@ -81,10 +84,6 @@ export function createContext(config: Config): CLIContext {
 
     hasAccount(): boolean {
       return !!(config.walletAddress || config.privateKey);
-    },
-
-    requiresAccountSetup(): boolean {
-      return !config.walletAddress && !config.privateKey;
     },
   };
 }

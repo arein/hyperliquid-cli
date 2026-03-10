@@ -1,15 +1,16 @@
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex, Address } from "viem";
-import { getDefaultAccount, type Account } from "./db/index.js";
+import { getDefaultAccount, type Account, type AccountType } from "./db/index.js";
 
 export interface Config {
   privateKey?: Hex;
   walletAddress?: Address;
   testnet: boolean;
+  cwpProvider?: string;
   // Account info if loaded from database
   account?: {
     alias: string;
-    type: "readonly" | "api_wallet";
+    type: AccountType;
   };
 }
 
@@ -27,6 +28,7 @@ export function loadConfig(testnet: boolean): Config {
       privateKey: defaultAccount.apiWalletPrivateKey || undefined,
       walletAddress: defaultAccount.userAddress,
       testnet,
+      cwpProvider: defaultAccount.cwpProvider || undefined,
       account: {
         alias: defaultAccount.alias,
         type: defaultAccount.type,

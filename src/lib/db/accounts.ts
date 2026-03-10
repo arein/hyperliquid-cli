@@ -4,7 +4,7 @@ import { getDb } from "./index.js"
 /**
  * Account types
  */
-export type AccountType = "readonly" | "api_wallet"
+export type AccountType = "readonly" | "api_wallet" | "walletconnect"
 export type AccountSource = "cli_import" // Future: "web", etc.
 
 /**
@@ -18,6 +18,7 @@ export interface Account {
   source: AccountSource
   apiWalletPrivateKey: Hex | null
   apiWalletPublicKey: Address | null
+  cwpProvider: string | null
   isDefault: boolean
   createdAt: number
   updatedAt: number
@@ -34,6 +35,7 @@ interface AccountRow {
   source: string
   api_wallet_private_key: string | null
   api_wallet_public_key: string | null
+  cwp_provider: string | null
   is_default: number
   created_at: number
   updated_at: number
@@ -51,6 +53,7 @@ function rowToAccount(row: AccountRow): Account {
     source: row.source as AccountSource,
     apiWalletPrivateKey: row.api_wallet_private_key as Hex | null,
     apiWalletPublicKey: row.api_wallet_public_key as Address | null,
+    cwpProvider: row.cwp_provider,
     isDefault: row.is_default === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -67,6 +70,7 @@ export interface CreateAccountInput {
   source?: AccountSource
   apiWalletPrivateKey?: Hex
   apiWalletPublicKey?: Address
+  cwpProvider?: string
   setAsDefault?: boolean
 }
 
@@ -93,8 +97,9 @@ export function createAccount(input: CreateAccountInput): Account {
       source,
       api_wallet_private_key,
       api_wallet_public_key,
+      cwp_provider,
       is_default
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     input.alias,
     input.userAddress,
@@ -102,6 +107,7 @@ export function createAccount(input: CreateAccountInput): Account {
     input.source || "cli_import",
     input.apiWalletPrivateKey || null,
     input.apiWalletPublicKey || null,
+    input.cwpProvider || null,
     shouldBeDefault ? 1 : 0
   )
 

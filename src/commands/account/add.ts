@@ -6,11 +6,13 @@ import { validateAddress } from "../../lib/validation.js"
 import { prompt, select, confirm, pressEnterOrEsc } from "../../lib/prompts.js"
 import { createAccount, getAccountCount, isAliasTaken } from "../../lib/db/index.js"
 import { validateApiKey } from "../../lib/api-wallet.js"
+import { isCwpAvailable, connectCwp } from "../../lib/cwp.js"
 import type { Hex } from "viem"
 
 const REFERRAL_LINK = "https://app.hyperliquid.xyz/join/CHRISLING"
+const CWP_BINARY = "walletconnect"
 
-type SetupMethod = "existing" | "new" | "readonly"
+type SetupMethod = "existing" | "new" | "readonly" | "walletconnect"
 
 export function registerAddCommand(account: Command): void {
   account
@@ -37,6 +39,11 @@ export function registerAddCommand(account: Command): void {
             description: "Generate a new wallet with encrypted keystore (Coming Soon)",
           },
           {
+            value: "walletconnect",
+            label: "Connect via WalletConnect",
+            description: "Scan QR code with mobile wallet — no private key needed",
+          },
+          {
             value: "readonly",
             label: "Add read-only account",
             description: "Watch a wallet without trading capabilities",
@@ -51,6 +58,8 @@ export function registerAddCommand(account: Command): void {
 
         if (setupMethod === "existing") {
           await handleExistingWallet(isTestnet, outputOpts)
+        } else if (setupMethod === "walletconnect") {
+          await handleWalletConnect(outputOpts)
         } else {
           await handleReadOnly(outputOpts)
         }
@@ -189,6 +198,60 @@ async function handleReadOnly(outputOpts: { json: boolean }): Promise<void> {
     console.log(`  Address: ${newAccount.userAddress}`)
     console.log(`  Type: ${newAccount.type}`)
     console.log(`  Default: ${newAccount.isDefault ? "Yes" : "No"}`)
+    console.log("")
+  }
+}
+
+async function handleWalletConnect(outputOpts: { json: boolean }): Promise<void> {
+  // Step 1: Check if walletconnect binary is available
+  const available = await isCwpAvailable(CWP_BINARY)
+  if (!available) {
+    throw new Error(
+      `"${CWP_BINARY}" CLI not found on PATH.\n` +
+      "Install it with: npm install -g @anthropic/walletconnect-cli",
+    )
+  }
+
+  // Step 2: Connect via WalletConnect (QR code displayed in terminal)
+  console.log("\nStarting WalletConnect session...\n")
+  const userAddress = await connectCwp(CWP_BINARY)
+  console.log(`\nConnected wallet: ${userAddress.slice(0, 6)}...${userAddress.slice(-4)}`)
+
+  // Step 3: Get alias
+  const alias = await promptForAlias()
+
+  // Step 4: Check if user wants to set as default
+  let setAsDefault = false
+  const existingCount = getAccountCount()
+
+  if (existingCount > 0) {
+    setAsDefault = await confirm("\nSet this as your default account?", true)
+  }
+
+  // Step 5: Save account
+  const newAccount = createAccount({
+    alias,
+    userAddress,
+    type: "walletconnect",
+    source: "cli_import",
+    cwpProvider: CWP_BINARY,
+    setAsDefault,
+  })
+
+  if (outputOpts.json) {
+    output(newAccount, outputOpts)
+  } else {
+    console.log("")
+    outputSuccess(`Account "${alias}" added successfully!`)
+    console.log("")
+    console.log("Account details:")
+    console.log(`  Alias: ${newAccount.alias}`)
+    console.log(`  Address: ${newAccount.userAddress}`)
+    console.log(`  Type: ${newAccount.type}`)
+    console.log(`  Provider: ${newAccount.cwpProvider}`)
+    console.log(`  Default: ${newAccount.isDefault ? "Yes" : "No"}`)
+    console.log("")
+    console.log("Trading orders will require approval on your mobile wallet.")
     console.log("")
   }
 }

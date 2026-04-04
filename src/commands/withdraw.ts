@@ -35,6 +35,9 @@ export function registerWithdrawCommand(program: Command): void {
           amount: amount.toString(),
         })
 
+        const response = result as { status?: string; response?: { type?: string; data?: { statuses?: string[] } } }
+        const status = response?.response?.data?.statuses?.[0] ?? response?.status ?? "unknown"
+
         if (outputOpts.json) {
           output({
             status: "withdrawn",
@@ -45,6 +48,7 @@ export function registerWithdrawCommand(program: Command): void {
         } else {
           outputSuccess(`Withdrew ${amount} USDC from Hyperliquid!`)
           console.log(`  Destination: ${destination}`)
+          console.log(`  Status: ${typeof status === "string" ? status : JSON.stringify(status)}`)
           console.log("  Funds will arrive on Arbitrum within ~1 minute.")
           console.log("")
         }

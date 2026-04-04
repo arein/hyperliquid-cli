@@ -4,7 +4,7 @@ import { getDb } from "./index.js"
 /**
  * Account types
  */
-export type AccountType = "readonly" | "api_wallet" | "walletconnect"
+export type AccountType = "readonly" | "api_wallet" | "walletconnect" | "ows"
 export type AccountSource = "cli_import" // Future: "web", etc.
 
 /**
@@ -19,6 +19,8 @@ export interface Account {
   apiWalletPrivateKey: Hex | null
   apiWalletPublicKey: Address | null
   cwpProvider: string | null
+  owsWalletName: string | null
+  owsApiKey: string | null
   isDefault: boolean
   createdAt: number
   updatedAt: number
@@ -36,6 +38,8 @@ interface AccountRow {
   api_wallet_private_key: string | null
   api_wallet_public_key: string | null
   cwp_provider: string | null
+  ows_wallet_name: string | null
+  ows_api_key: string | null
   is_default: number
   created_at: number
   updated_at: number
@@ -54,6 +58,8 @@ function rowToAccount(row: AccountRow): Account {
     apiWalletPrivateKey: row.api_wallet_private_key as Hex | null,
     apiWalletPublicKey: row.api_wallet_public_key as Address | null,
     cwpProvider: row.cwp_provider,
+    owsWalletName: row.ows_wallet_name,
+    owsApiKey: row.ows_api_key,
     isDefault: row.is_default === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -71,6 +77,8 @@ export interface CreateAccountInput {
   apiWalletPrivateKey?: Hex
   apiWalletPublicKey?: Address
   cwpProvider?: string
+  owsWalletName?: string
+  owsApiKey?: string
   setAsDefault?: boolean
 }
 
@@ -98,8 +106,10 @@ export function createAccount(input: CreateAccountInput): Account {
       api_wallet_private_key,
       api_wallet_public_key,
       cwp_provider,
+      ows_wallet_name,
+      ows_api_key,
       is_default
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     input.alias,
     input.userAddress,
@@ -108,6 +118,8 @@ export function createAccount(input: CreateAccountInput): Account {
     input.apiWalletPrivateKey || null,
     input.apiWalletPublicKey || null,
     input.cwpProvider || null,
+    input.owsWalletName || null,
+    input.owsApiKey || null,
     shouldBeDefault ? 1 : 0
   )
 

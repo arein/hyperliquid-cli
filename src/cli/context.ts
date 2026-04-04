@@ -8,6 +8,7 @@ import type { Config } from "../lib/config.js";
 import type { Address, Hex } from "viem";
 import { ServerClient, tryConnectToServer } from "../client/index.js";
 import { createCwpWallet } from "../lib/cwp.js";
+import { createOwsWallet } from "../lib/ows.js";
 
 export interface CLIContext {
   config: Config;
@@ -39,7 +40,10 @@ export function createContext(config: Config): CLIContext {
 
     getWalletClient(): ExchangeClient {
       if (!walletClient) {
-        if (config.account?.type === "walletconnect" && config.cwpProvider && config.walletAddress) {
+        if (config.account?.type === "ows" && config.owsWalletName && config.walletAddress) {
+          const wallet = createOwsWallet(config.owsWalletName, config.walletAddress, config.owsApiKey);
+          walletClient = new ExchangeClient({ transport, wallet });
+        } else if (config.account?.type === "walletconnect" && config.cwpProvider && config.walletAddress) {
           const wallet = createCwpWallet(config.cwpProvider, config.walletAddress);
           walletClient = new ExchangeClient({ transport, wallet });
         } else if (config.privateKey) {

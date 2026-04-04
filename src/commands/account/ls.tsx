@@ -13,6 +13,7 @@ interface AccountRow {
   type: string
   apiWallet: string
   provider: string
+  owsWallet: string
   default: string
 }
 
@@ -38,10 +39,12 @@ function AccountsList({ accounts }: { accounts: Account[] }): React.ReactElement
       ? formatAddress(acc.apiWalletPublicKey)
       : "-",
     provider: acc.cwpProvider || "-",
+    owsWallet: acc.owsWalletName || "-",
     default: acc.isDefault ? "*" : "",
   }))
 
   const hasWalletConnect = accounts.some((acc) => acc.type === "walletconnect")
+  const hasOws = accounts.some((acc) => acc.type === "ows")
 
   const columns: Column<AccountRow>[] = [
     { key: "default", header: "", width: 2 },
@@ -50,6 +53,7 @@ function AccountsList({ accounts }: { accounts: Account[] }): React.ReactElement
     { key: "type", header: "Type" },
     { key: "apiWallet", header: "API Wallet" },
     ...(hasWalletConnect ? [{ key: "provider" as const, header: "Provider" }] : []),
+    ...(hasOws ? [{ key: "owsWallet" as const, header: "OWS Wallet" }] : []),
   ]
 
   return (
@@ -81,6 +85,8 @@ export function registerLsCommand(account: Command): void {
           source: acc.source,
           apiWalletPublicKey: acc.apiWalletPublicKey,
           cwpProvider: acc.cwpProvider,
+          owsWalletName: acc.owsWalletName,
+          owsApiKey: acc.owsApiKey ? "[REDACTED]" : null,
           isDefault: acc.isDefault,
           createdAt: acc.createdAt,
           updatedAt: acc.updatedAt,

@@ -7,6 +7,8 @@ export interface Config {
   walletAddress?: Address;
   testnet: boolean;
   cwpProvider?: string;
+  owsWalletName?: string;
+  owsApiKey?: string;
   // Account info if loaded from database
   account?: {
     alias: string;
@@ -29,6 +31,8 @@ export function loadConfig(testnet: boolean): Config {
       walletAddress: defaultAccount.userAddress,
       testnet,
       cwpProvider: defaultAccount.cwpProvider || undefined,
+      owsWalletName: defaultAccount.owsWalletName || undefined,
+      owsApiKey: defaultAccount.owsApiKey || undefined,
       account: {
         alias: defaultAccount.alias,
         type: defaultAccount.type,

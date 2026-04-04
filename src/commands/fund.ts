@@ -2,6 +2,7 @@ import { Command } from "commander"
 import { getContext, getOutputOptions } from "../cli/program.js"
 import { output, outputError, outputSuccess } from "../cli/output.js"
 import { cwpExec } from "../lib/cwp.js"
+import { owsSendTransaction } from "../lib/ows.js"
 
 // Arbitrum USDC (native)
 const ARB_USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
@@ -92,21 +93,25 @@ async function sendAndConfirm(
 export function registerFundCommand(program: Command): void {
   program
     .command("fund <amount>")
-    .description("Deposit USDC into Hyperliquid (requires WalletConnect account)")
+    .description("Deposit USDC into Hyperliquid (requires WalletConnect or OWS account)")
     .action(async function (this: Command, amountStr: string) {
       const ctx = getContext(this)
       const outputOpts = getOutputOptions(this)
 
       try {
-        if (ctx.config.account?.type !== "walletconnect") {
+        const accountType = ctx.config.account?.type
+        if (accountType !== "walletconnect" && accountType !== "ows") {
           throw new Error(
-            "The 'fund' command requires a WalletConnect account.\n" +
-            "Run 'hl account add' and select 'Connect via WalletConnect'.",
+            "The 'fund' command requires a WalletConnect or OWS account.\n" +
+            "Run 'hl account add' and select 'Connect via WalletConnect' or 'Connect via OWS'.",
           )
         }
 
-        if (!ctx.config.cwpProvider) {
+        if (accountType === "walletconnect" && !ctx.config.cwpProvider) {
           throw new Error("No WalletConnect provider configured for this account.")
+        }
+        if (accountType === "ows" && !ctx.config.owsWalletName) {
+          throw new Error("No OWS wallet name configured for this account.")
         }
 
         const amount = parseFloat(amountStr)
@@ -119,7 +124,6 @@ export function registerFundCommand(program: Command): void {
         const bridgeAddress = isTestnet ? BRIDGE_TESTNET : BRIDGE_MAINNET
         const rpc = isTestnet ? ARB_RPC_TESTNET : ARB_RPC
         const chainId = isTestnet ? ARB_CHAIN_TESTNET : ARB_CHAIN
-        const binary = ctx.config.cwpProvider
         const walletAddress = ctx.config.walletAddress
         if (!walletAddress) {
           throw new Error("No wallet address configured.")
@@ -150,10 +154,34 @@ export function registerFundCommand(program: Command): void {
 
         const baseTx = { to: usdcAddress, value: "0x0", gas: "0x186a0", chainId }
 
+        // Helper to send + confirm via the appropriate provider
+        const sendTx = async (
+          tx: { to: string; data: string; value: string; gas: string; chainId: string },
+          label: string,
+        ): Promise<string> => {
+          if (accountType === "ows") {
+            const owsWallet = ctx.config.owsWalletName!
+            const txHash = await owsSendTransaction(owsWallet, tx, rpc, ctx.config.owsApiKey)
+            console.log(`  Tx: ${txHash}`)
+            console.log("  Waiting for confirmation...")
+            const receipt = await pollReceipt(rpc, txHash)
+            if (!receipt) {
+              throw new Error(`${label} timed out waiting for receipt.`)
+            }
+            if (receipt.status !== "0x1") {
+              throw new Error(`${label} reverted on-chain.\n  Tx: ${txHash}`)
+            }
+            console.log("  Confirmed!")
+            return txHash
+          } else {
+            return sendAndConfirm(ctx.config.cwpProvider!, rpc, tx, label)
+          }
+        }
+
         // Step 1: Approve USDC to bridge contract
         // approve(address spender, uint256 amount) = 0x095ea7b3
         console.log("Step 1/2: Approving USDC transfer...")
-        const approveHash = await sendAndConfirm(binary, rpc, {
+        const approveHash = await sendTx({
           ...baseTx,
           data: "0x095ea7b3" + bridgePadded + amountHex,
         }, "Approval transaction")
@@ -161,7 +189,7 @@ export function registerFundCommand(program: Command): void {
         // Step 2: Transfer USDC to bridge contract
         // transfer(address to, uint256 amount) = 0xa9059cbb
         console.log("\nStep 2/2: Sending USDC to Hyperliquid bridge...")
-        const txHash = await sendAndConfirm(binary, rpc, {
+        const txHash = await sendTx({
           ...baseTx,
           data: "0xa9059cbb" + bridgePadded + amountHex,
         }, "Transfer transaction")

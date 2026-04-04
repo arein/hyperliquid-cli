@@ -7,12 +7,14 @@ import { prompt, select, confirm, pressEnterOrEsc } from "../../lib/prompts.js"
 import { createAccount, getAccountCount, isAliasTaken } from "../../lib/db/index.js"
 import { validateApiKey } from "../../lib/api-wallet.js"
 import { isCwpAvailable, connectCwp } from "../../lib/cwp.js"
+import { isOwsAvailable, listOwsWallets } from "../../lib/ows.js"
+import { installSpendingPolicy, isSpendingPolicyInstalled } from "../../lib/ows-policy.js"
 import type { Hex } from "viem"
 
 const REFERRAL_LINK = "https://app.hyperliquid.xyz/join/CHRISLING"
 const CWP_BINARY = "walletconnect"
 
-type SetupMethod = "existing" | "new" | "readonly" | "walletconnect"
+type SetupMethod = "existing" | "new" | "readonly" | "walletconnect" | "ows"
 
 export function registerAddCommand(account: Command): void {
   account
@@ -39,6 +41,11 @@ export function registerAddCommand(account: Command): void {
             description: "Generate a new wallet with encrypted keystore (Coming Soon)",
           },
           {
+            value: "ows",
+            label: "Connect via OWS (Open Wallet Standard)",
+            description: "Use a local OWS wallet — encrypted, policy-gated signing",
+          },
+          {
             value: "walletconnect",
             label: "Connect via WalletConnect",
             description: "Scan QR code with mobile wallet — no private key needed",
@@ -58,6 +65,8 @@ export function registerAddCommand(account: Command): void {
 
         if (setupMethod === "existing") {
           await handleExistingWallet(isTestnet, outputOpts)
+        } else if (setupMethod === "ows") {
+          await handleOws(outputOpts)
         } else if (setupMethod === "walletconnect") {
           await handleWalletConnect(outputOpts)
         } else {
@@ -253,6 +262,133 @@ async function handleWalletConnect(outputOpts: { json: boolean }): Promise<void>
     console.log("")
     console.log("Trading orders will require approval on your mobile wallet.")
     console.log("")
+  }
+}
+
+async function handleOws(outputOpts: { json: boolean }): Promise<void> {
+  // Step 1: Check if OWS binary is available
+  const available = await isOwsAvailable()
+  if (!available) {
+    throw new Error(
+      `"ows" CLI not found on PATH.\n` +
+      "Install it with: npm install -g @open-wallet-standard/core",
+    )
+  }
+
+  // Step 2: List available OWS wallets
+  console.log("\nFetching OWS wallets...\n")
+  const wallets = await listOwsWallets()
+
+  if (wallets.length === 0) {
+    throw new Error(
+      "No OWS wallets found. Create one first with:\n" +
+      "  ows wallet create --name my-wallet",
+    )
+  }
+
+  // Step 3: Let user pick a wallet
+  const choices = wallets.map((w) => ({
+    value: w.name,
+    label: w.name,
+    description: `${w.evmAddress.slice(0, 6)}...${w.evmAddress.slice(-4)}`,
+  }))
+
+  const selectedWallet = await select<string>("Select an OWS wallet:", choices)
+  const wallet = wallets.find((w) => w.name === selectedWallet)!
+  const userAddress = wallet.evmAddress
+
+  console.log(`\nSelected wallet: ${selectedWallet} (${userAddress.slice(0, 6)}...${userAddress.slice(-4)})`)
+
+  // Step 4: Ask for OWS API key (enables policy enforcement)
+  let owsApiKey: string | undefined
+  const useApiKey = await confirm(
+    "Use an OWS API key? (enables spending policy enforcement)",
+    true,
+  )
+  if (useApiKey) {
+    const keyInput = await prompt("Enter your OWS API key (ows_key_...): ")
+    if (keyInput && keyInput.startsWith("ows_key_")) {
+      owsApiKey = keyInput
+    } else if (keyInput) {
+      console.log("  Invalid API key format (must start with ows_key_). Skipping — will use passphrase mode.")
+    }
+  }
+
+  // Step 5: Get alias
+  const alias = await promptForAlias()
+
+  // Step 6: Check if user wants to set as default
+  let setAsDefault = false
+  const existingCount = getAccountCount()
+
+  if (existingCount > 0) {
+    setAsDefault = await confirm("\nSet this as your default account?", true)
+  }
+
+  // Step 7: Save account
+  const newAccount = createAccount({
+    alias,
+    userAddress,
+    type: "ows",
+    source: "cli_import",
+    owsWalletName: selectedWallet,
+    owsApiKey,
+    setAsDefault,
+  })
+
+  if (outputOpts.json) {
+    output({
+      ...newAccount,
+      owsApiKey: owsApiKey ? "[REDACTED]" : null,
+    }, outputOpts)
+  } else {
+    console.log("")
+    outputSuccess(`Account "${alias}" added successfully!`)
+    console.log("")
+    console.log("Account details:")
+    console.log(`  Alias: ${newAccount.alias}`)
+    console.log(`  Address: ${newAccount.userAddress}`)
+    console.log(`  Type: ${newAccount.type}`)
+    console.log(`  OWS Wallet: ${newAccount.owsWalletName}`)
+    console.log(`  API Key: ${owsApiKey ? "configured (policy-enforced)" : "none (passphrase mode)"}`)
+    console.log(`  Default: ${newAccount.isDefault ? "Yes" : "No"}`)
+    console.log("")
+    if (owsApiKey) {
+      console.log("Signing will use the API key — OWS policies are enforced.")
+    } else {
+      console.log("Signing will prompt for your wallet passphrase (no policy enforcement).")
+    }
+    console.log("")
+
+    // Offer to install spending policy if using API key and policy not yet installed
+    if (owsApiKey) {
+      const policyInstalled = await isSpendingPolicyInstalled()
+      if (!policyInstalled) {
+        const installPolicy = await confirm(
+          "Install a daily spending limit policy for on-chain transactions?",
+          true,
+        )
+        if (installPolicy) {
+          const limitStr = await prompt("Daily spending limit in USD (default: 20): ")
+          const dailyLimit = limitStr ? parseFloat(limitStr) : 20
+          if (isNaN(dailyLimit) || dailyLimit <= 0) {
+            console.log("  Invalid amount, using $20 default.")
+          }
+          const limit = isNaN(dailyLimit) || dailyLimit <= 0 ? 20 : dailyLimit
+          try {
+            await installSpendingPolicy(limit)
+            outputSuccess(`Spending limit policy installed (max $${limit}/day for on-chain transactions).`)
+            console.log("")
+          } catch (err) {
+            console.log(`  Warning: Could not install policy: ${err instanceof Error ? err.message : String(err)}`)
+            console.log("")
+          }
+        }
+      } else {
+        console.log("Spending limit policy is already installed.")
+        console.log("")
+      }
+    }
   }
 }
 

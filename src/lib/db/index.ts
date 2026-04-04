@@ -109,6 +109,49 @@ function runMigrations(db: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_accounts_user_address ON accounts(user_address);
       `,
     },
+    {
+      name: "003_add_ows_type",
+      sql: `
+        CREATE TABLE accounts_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          alias TEXT NOT NULL UNIQUE,
+          user_address TEXT NOT NULL,
+          type TEXT NOT NULL CHECK (type IN ('readonly', 'api_wallet', 'walletconnect', 'ows')),
+          source TEXT NOT NULL DEFAULT 'cli_import',
+          api_wallet_private_key TEXT,
+          api_wallet_public_key TEXT,
+          cwp_provider TEXT,
+          ows_wallet_name TEXT,
+          ows_api_key TEXT,
+          is_default INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+          updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+        );
+
+        INSERT INTO accounts_new (
+          id, alias, user_address, type, source,
+          api_wallet_private_key, api_wallet_public_key,
+          cwp_provider, is_default, created_at, updated_at
+        )
+        SELECT
+          id, alias, user_address, type, source,
+          api_wallet_private_key, api_wallet_public_key,
+          cwp_provider, is_default, created_at, updated_at
+        FROM accounts;
+
+        DROP TABLE accounts;
+        ALTER TABLE accounts_new RENAME TO accounts;
+
+        CREATE INDEX IF NOT EXISTS idx_accounts_is_default ON accounts(is_default);
+        CREATE INDEX IF NOT EXISTS idx_accounts_user_address ON accounts(user_address);
+      `,
+    },
+    {
+      name: "004_add_ows_api_key",
+      sql: `
+        ALTER TABLE accounts ADD COLUMN ows_api_key TEXT;
+      `,
+    },
   ]
 
   const appliedMigrations = db
